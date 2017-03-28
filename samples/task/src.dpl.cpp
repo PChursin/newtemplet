@@ -8,25 +8,26 @@ struct my_engine : engine{
 	my_engine(int argc, char *argv[]){
 		::init(this, argc, argv);
 	}
-	void run(){ ::run(this); }
-	void map(){ ::map(this); }
+	void run(){ TEMPLET::run(this); }
+	void map(){ TEMPLET::map(this); }
 };
 
-enum MES_TAGS{ MES_test_msg, START };
+enum MESSAGE_TAGS{ MES_test_msg, START };
 
 #pragma templet ~test_msg
 
 struct test_msg : message{
 	test_msg(actor*a, engine*e){
 		::init(this, e);
+		_actor = a;
 	}
 
 	bool access(actor*a){
-		return ::access(this, a);
+		return TEMPLET::access(this, a);
 	}
 
 	void send(actor*a){
-		::send(this, a, MES_test_msg);
+		TEMPLET::send(this, a, MES_test_msg);
 	}
 
 /*$TET$test_msg$$data*/
@@ -39,19 +40,19 @@ struct generator : actor{
 	generator(my_engine&e){
 		::init(this, &e, generator_recv_adapter);
 		::init(&_start, &e);
-		::send(&_start, this, MES_TAGS::START);
+		::send(&_start, this, START);
 /*$TET$generator$generator*/
 /*$TET$*/
 	}
 
-	void at(int _at){ ::at(this, _at); }
-	void delay(double t){ ::delay(this, t); }
-	void stop(){ ::stop(this); }
+	void at(int _at){ TEMPLET::at(this, _at); }
+	void delay(double t){ TEMPLET::delay(this, t); }
+	void stop(){ TEMPLET::stop(this); }
 
-	friend void generator_recv_adapter (actor*a, message*m, int tag){
+	static void generator_recv_adapter (actor*a, message*m, int tag){
 		switch(tag){
-			case MES_TAGS::MES_test_msg: ((generator*)a)->recv_test_msg(*((test_msg*)m)); break;
-			case MES_TAGS::START: ((generator*)a)->start(); break;
+			case MES_test_msg: ((generator*)a)->recv_test_msg(*((test_msg*)m)); break;
+			case START: ((generator*)a)->start(); break;
 		}
 	}
 
@@ -79,13 +80,13 @@ struct receiver : actor{
 /*$TET$*/
 	}
 
-	void at(int _at){ ::at(this, _at); }
-	void delay(double t){ ::delay(this, t); }
-	void stop(){ ::stop(this); }
+	void at(int _at){ TEMPLET::at(this, _at); }
+	void delay(double t){ TEMPLET::delay(this, t); }
+	void stop(){ TEMPLET::stop(this); }
 
-	friend void receiver_recv_adapter (actor*a, message*m, int tag){
+	static void receiver_recv_adapter (actor*a, message*m, int tag){
 		switch(tag){
-			case MES_TAGS::MES_test_msg: ((receiver*)a)->recv_test_msg(*((test_msg*)m)); break;
+			case MES_test_msg: ((receiver*)a)->recv_test_msg(*((test_msg*)m)); break;
 		}
 	}
 

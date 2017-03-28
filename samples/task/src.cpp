@@ -1,151 +1,247 @@
 /*$TET$header*/
+/*--------------------------------------------------------------------------*/
+/*  Copyright 2016 Sergei Vostokin                                          */
+/*                                                                          */
+/*  Licensed under the Apache License, Version 2.0 (the "License");         */
+/*  you may not use this file except in compliance with the License.        */
+/*  You may obtain a copy of the License at                                 */
+/*                                                                          */
+/*  http://www.apache.org/licenses/LICENSE-2.0                              */
+/*                                                                          */
+/*  Unless required by applicable law or agreed to in writing, software     */
+/*  distributed under the License is distributed on an "AS IS" BASIS,       */
+/*  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.*/
+/*  See the License for the specific language governing permissions and     */
+/*  limitations under the License.                                          */
+/*--------------------------------------------------------------------------*/
+
 #include <iostream>
+#define PARALLEL_EXECUTION
 #include <templet.hpp>
+
+using namespace std;
+
+const int N = 1000;
 /*$TET$*/
 
 using namespace TEMPLET;
 
-struct my_engine : engine{
-	my_engine(int argc, char *argv[]){
+struct my_engine : engine {
+	my_engine(int argc, char *argv[]) {
 		::init(this, argc, argv);
 	}
-	void run(){ ::run(this); }
-	void map(){ ::map(this); }
+	void run() { TEMPLET::run(this); }
+	void map() { TEMPLET::map(this); }
 };
 
-enum MES_TAGS{ MES_test_msg, START };
+enum MESSAGE_TAGS { START };
 
-#pragma templet ~test_msg
+#pragma templet ~mes=
 
-struct test_msg : message{
-	test_msg(actor*a, engine*e){
+struct mes : message {
+	mes(actor*a, engine*e, int t) : _where(CLI), _cli(a), _client_id(t) {
 		::init(this, e);
+		_actor = a;
 	}
 
-	bool access(actor*a){
-		return ::access(this, a);
+	bool access(actor*a) {
+		return TEMPLET::access(this, a);
 	}
 
-	void send(actor*a){
-		::send(this, a, MES_test_msg);
+	void send() {
+		if (_where == CLI) { TEMPLET::send(this, _srv, _server_id); _where = SRV; }
+		else if (_where == SRV) { TEMPLET::send(this, _cli, _client_id); _where = CLI; }
 	}
 
-/*$TET$test_msg$$data*/
-	test_msg() { _sending = false; c = 0; _actor = 0; _tag = 0;}
-	char c;
-/*$TET$*/
+	/*$TET$mes$$data*/
+	int number;
+	/*$TET$*/
+
+	enum { CLI, SRV } _where;
+	actor* _srv;
+	actor* _cli;
+	int _client_id;
+	int _server_id;
 };
 
-#pragma templet *generator+
+#pragma templet *producer(out!mes)+
 
-struct generator : actor{
-	generator(my_engine&e){
-		::init(this, &e, generator_recv_adapter);
+struct producer : actor {
+	enum tag { TAG_out = START + 1 };
+
+	producer(my_engine&e) :_out(this, &e, TAG_out) {
+		::init(this, &e, producer_recv_adapter);
 		::init(&_start, &e);
-		::send(&_start, this, MES_TAGS::START);
-/*$TET$generator$generator*/
-/*$TET$*/
+		::send(&_start, this, START);
+		/*$TET$producer$producer*/
+		/*$TET$*/
 	}
 
-	void at(int _at){ ::at(this, _at); }
-	void delay(double t){ ::delay(this, t); }
-	void stop(){ ::stop(this); }
+	void at(int _at) { TEMPLET::at(this, _at); }
+	void delay(double t) { TEMPLET::delay(this, t); }
+	void stop() { TEMPLET::stop(this); }
 
-	friend void generator_recv_adapter (actor*a, message*m, int tag){
-		switch(tag){
-			case MES_TAGS::MES_test_msg: ((generator*)a)->recv_test_msg(*((test_msg*)m)); break;
-			case MES_TAGS::START: ((generator*)a)->start(); break;
+	mes* out() { return &_out; }
+
+	static void producer_recv_adapter(actor*a, message*m, int tag) {
+		switch (tag) {
+		case TAG_out: ((producer*)a)->out(*((mes*)m)); break;
+		case START: ((producer*)a)->start(); break;
 		}
 	}
 
-	void start(){
-/*$TET$generator$start*/
-		msgs = new test_msg * [n_msg];
-		int i = 0;
-		while (flag && i < n_msg)
-		//while(flag)
-		{
-			//test_msg* m = new test_msg();
-			//msgs[i] = m;
-			//m->c = i;
-			//m->send(rec);
-
-			msgs[i] = new test_msg();
-			msgs[i]->c = i;
-			msgs[i]->send(rec);
-			std::cout << "Sent message " << i++ << std::endl;
-		}
-		generated = i;
-		stop();
-/*$TET$*/
+	void start() {
+		/*$TET$producer$start*/
+		cur = 2;
+		_out.number = cur++;
+		_out.send();
+		/*$TET$*/
 	}
 
-	void recv_test_msg(test_msg&m){
-/*$TET$generator$recv_test_msg*/
-		flag = false;
-		for (int j = 0; j < generated; j++)
-			delete msgs[j];
-		delete[] msgs;
-		stop();
-/*$TET$*/
+	void out(mes&m) {
+		/*$TET$producer$out*/
+		//if (cur == N) return;
+		_out.number = cur++;
+		_out.send();
+		/*$TET$*/
 	}
 
-/*$TET$generator$$code&data*/
-	const int n_msg = 20;
-	int generated = 0;
-	test_msg ** msgs;
-	bool flag = true;
-	actor* rec;
-/*$TET$*/
+	/*$TET$producer$$code&data*/
+	int cur;
+	/*$TET$*/
+
+	mes _out;
 	message _start;
 };
 
-#pragma templet *receiver
+#pragma templet *sorter(in?mes,out!mes)
 
-struct receiver : actor{
-	receiver(my_engine&e){
-		::init(this, &e, receiver_recv_adapter);
-/*$TET$receiver$receiver*/
-/*$TET$*/
+struct sorter : actor {
+	enum tag { TAG_in, TAG_out };
+
+	sorter(my_engine&e) :_out(this, &e, TAG_out) {
+		::init(this, &e, sorter_recv_adapter);
+		/*$TET$sorter$sorter*/
+		is_first = true;
+		_in = 0;
+		/*$TET$*/
 	}
 
-	void at(int _at){ ::at(this, _at); }
-	void delay(double t){ ::delay(this, t); }
-	void stop(){ ::stop(this); }
+	void at(int _at) { TEMPLET::at(this, _at); }
+	void delay(double t) { TEMPLET::delay(this, t); }
+	void stop() { TEMPLET::stop(this); }
 
-	friend void receiver_recv_adapter (actor*a, message*m, int tag){
-		switch(tag){
-			case MES_TAGS::MES_test_msg: ((receiver*)a)->recv_test_msg(*((test_msg*)m)); break;
+	void in(mes*m) { m->_server_id = TAG_in; m->_srv = this; }
+	mes* out() { return &_out; }
+
+	static void sorter_recv_adapter(actor*a, message*m, int tag) {
+		switch (tag) {
+		case TAG_in: ((sorter*)a)->in(*((mes*)m)); break;
+		case TAG_out: ((sorter*)a)->out(*((mes*)m)); break;
 		}
 	}
 
-	void recv_test_msg(test_msg&m){
-/*$TET$receiver$recv_test_msg*/
-		std::cout << (int) m.c << std::endl;
-		if (m.c == 0)
-		{
-			m.send(gen);
-			std::cout << "Stop sent" << std::endl;
-		}
-/*$TET$*/
+	void in(mes&m) {
+		/*$TET$sorter$in*/
+		_in = &m;
+		if (_out.access(this))proc();
+		/*$TET$*/
 	}
 
-/*$TET$receiver$$code&data*/
-	actor* gen;
-/*$TET$*/
+	void out(mes&m) {
+		/*$TET$sorter$out*/
+		if (_in->access(this))proc();
+		/*$TET$*/
+	}
+
+	/*$TET$sorter$$code&data*/
+	void proc() {
+		if (is_first) {
+			number = _in->number;
+			is_first = false;
+			_in->send();
+			//cout << "Got simple number " << number << endl;
+		}
+		else {
+			if (_in->number % number) {
+				_out.number = _in->number;
+				_in->send();
+				_out.send();
+			}
+			else {
+				//_out.number = number;
+				//number = _in->number;
+				_in->send();//_out.send();
+			}
+		}
+	}
+
+	int number;
+	bool is_first;
+	mes* _in;
+	/*$TET$*/
+
+	mes _out;
+};
+
+#pragma templet *stoper(in?mes)
+
+struct stoper : actor {
+	enum tag { TAG_in };
+
+	stoper(my_engine&e) {
+		::init(this, &e, stoper_recv_adapter);
+		/*$TET$stoper$stoper*/
+		/*$TET$*/
+	}
+
+	void at(int _at) { TEMPLET::at(this, _at); }
+	void delay(double t) { TEMPLET::delay(this, t); }
+	void stop() { TEMPLET::stop(this); }
+
+	void in(mes*m) { m->_server_id = TAG_in; m->_srv = this; }
+
+	static void stoper_recv_adapter(actor*a, message*m, int tag) {
+		switch (tag) {
+		case TAG_in: ((stoper*)a)->in(*((mes*)m)); break;
+		}
+	}
+
+	void in(mes&m) {
+		/*$TET$stoper$in*/
+		number = m.number;
+		stop();
+		/*$TET$*/
+	}
+
+	/*$TET$stoper$$code&data*/
+	int number;
+	/*$TET$*/
+
 };
 
 /*$TET$footer*/
-int main(int argc, char * argv[])
+int main(int argc, char *argv[])
 {
-	{
-		my_engine e(argc, argv);
-		generator g(e);
-		receiver r(e);
-		g.rec = &r;
-		r.gen = &g;
-		e.run();
+	my_engine e(argc, argv);
+
+	sorter** a_sorter = new sorter*[N - 1];
+	for (int i = 0; i<N - 1; i++)a_sorter[i] = new sorter(e);
+
+	producer a_producer(e);
+	stoper an_endpoint(e);
+
+	mes* prev = a_producer.out();
+	for (int i = 0; i<N - 1; i++) {
+		a_sorter[i]->in(prev);
+		prev = a_sorter[i]->out();
 	}
+	an_endpoint.in(prev);
+
+	e.run();
+
+	cout << N << " prime number = " << an_endpoint.number << endl;
+
 	return 0;
 }
 /*$TET$*/

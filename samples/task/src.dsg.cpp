@@ -14,6 +14,7 @@ public:
 #pragma templet ~test_msg
 
 struct test_msg : message{
+	test_msg(actor*a, engine*e);
 	bool access(actor*);
 	void send(actor*);
 
